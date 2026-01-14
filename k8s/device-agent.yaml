@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: device-agent-1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: device-agent-1
+  template:
+    metadata:
+      labels:
+        app: device-agent-1
+    spec:
+      containers:
+        - name: device-agent
+          image: device-agent:latest
+          imagePullPolicy: Never
+          args:
+            - "--supervisor=supervisor.opamp-system.svc.cluster.local:50051"
+            - "--opamp-server=ws://opamp-server.opamp-system.svc.cluster.local:4320/v1/opamp"
+            - "--node-id=device-1"
+            - "--otel-config=/etc/otelcol/config.yaml"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol
+      volumes:
+        - name: config
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: device-agent-2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: device-agent-2
+  template:
+    metadata:
+      labels:
+        app: device-agent-2
+    spec:
+      containers:
+        - name: device-agent
+          image: device-agent:latest
+          imagePullPolicy: Never
+          args:
+            - "--supervisor=supervisor.opamp-system.svc.cluster.local:50051"
+            - "--opamp-server=wss://opamp-server.opamp-system.svc.cluster.local:4320/v1/opamp"
+            - "--node-id=device-2"
+            - "--otel-config=/etc/otelcol/config.yaml"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol
+      volumes:
+        - name: config
+          emptyDir: {}

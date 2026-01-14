@@ -1,0 +1,9 @@
+# Example: Enable LOGS pipeline for device-1
+# This is what the OpAMP server would send
+
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug, otlp]

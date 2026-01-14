@@ -1,0 +1,40 @@
+
+syntax = "proto3";
+
+package control;
+
+// IMPORTANT: This must match your local module path + directory.
+// The alias after ';' sets the Go package name for generated code.
+option go_package = "local.dev/opamp-poc-supervisor/api/controlpb;controlpb";
+
+message EdgeIdentity {
+  string node_id = 1;
+  string version = 2;
+  string platform = 3;
+}
+
+message Command {
+  string type = 1;
+  string payload = 2;
+  string correlation_id = 3;
+}
+
+message Event {
+  string type = 1;
+  string payload = 2;
+  string correlation_id = 3;
+  int64 ts_unix_nano = 4;
+}
+
+message Envelope {
+  oneof body {
+    EdgeIdentity register = 1; // sent once by the edge
+    Command      command  = 2; // supervisor -> edge
+    Event        event    = 3; // edge -> supervisor
+  }
+}
+
+service ControlService {
+  // Single bidirectional stream per edge device.
+  rpc Control(stream Envelope) returns (stream Envelope);
+}
