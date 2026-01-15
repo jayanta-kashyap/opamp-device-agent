@@ -144,9 +144,13 @@ func (a *DeviceAgent) startOpAMPClient(ctx context.Context) error {
 		Capabilities: protobufs.AgentCapabilities_AgentCapabilities_AcceptsRemoteConfig |
 			protobufs.AgentCapabilities_AgentCapabilities_ReportsEffectiveConfig |
 			protobufs.AgentCapabilities_AgentCapabilities_ReportsStatus,
-		TLSConfig: &tls.Config{
+	}
+
+	// Only set TLS config if using wss:// (secure WebSocket)
+	if len(a.opampServerURL) > 6 && a.opampServerURL[:6] == "wss://" {
+		settings.TLSConfig = &tls.Config{
 			InsecureSkipVerify: true,
-		},
+		}
 	}
 
 	// Generate instance UID from node ID
