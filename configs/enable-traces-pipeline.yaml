@@ -1,9 +1,0 @@
-# Example: Enable TRACES pipeline for device-2
-# This is what the OpAMP server would send
-
-service:
-  pipelines:
-    traces:
-      receivers: [otlp]
-      processors: [batch]
-      exporters: [debug, otlp]

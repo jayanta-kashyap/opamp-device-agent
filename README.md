@@ -1,406 +1,312 @@
-# Device Agent (Edge OTel Agent Manager)
+# Device Agent - Edge Device Controller
 
-## Overview
-The Device Agent runs on edge devices and acts as a **gRPC client** that connects to the Supervisor. It manages a local OpenTelemetry Collector instance, receiving configuration updates via gRPC and applying them to the collector in real-time.
+## What is this?
 
-## Role in the POC Architecture
+The **Device Agent** manages Fluent Bit on edge devices. It connects to the OpAMP Supervisor in the cloud and receives configuration updates. When a new config arrives, it writes the config to a shared storage location where Fluent Bit can read it.
 
-```
-        Cloud Layer (Minikube)
-┌─────────────────────────────────────────┐
-│          OpAMP Server                   │
-└─────────────────────────────────────────┘
-                    ↕
-           OpAMP Protocol
-                    ↕
-┌─────────────────────────────────────────┐
-│           Supervisor                    │
-│         (gRPC Server)                   │
-└─────────────────────────────────────────┘
-                    ↕
-        Bidirectional gRPC Stream
-                    ↕
-┌─────────────────────────────────────────┐
-│  Device Agent (This Component)          │
-│  ┌────────────────────────────────┐    │
-│  │     gRPC Client                │    │
-│  │  Connects to Supervisor:50051  │    │
-│  └────────────────────────────────┘    │
-│                 ↕                       │
-│  ┌────────────────────────────────┐    │
-│  │  OTel Config Manager           │    │
-│  │  (Writes config to disk)       │    │
-│  └────────────────────────────────┘    │
-└─────────────────────────────────────────┘
-                    ↕
-          Reads config file
-                    ↕
-┌─────────────────────────────────────────┐
-│    OpenTelemetry Collector              │
-│    (Separate Container/Process)         │
-│  - Receives telemetry (OTLP)           │
-│  - Processes with pipelines            │
-│  - Exports to backends                 │
-└─────────────────────────────────────────┘
-```
+Think of it as the **remote control receiver** - it listens for commands from the cloud and applies them locally.
 
-## Components
+---
 
-### 1. gRPC Client
-**Purpose:** Establishes and maintains bidirectional streaming connection to Supervisor.
-
-**Functionality:**
-- **Connection Establishment:** Connects to supervisor at startup
-- **Device Registration:** Sends initial "Connected" event with device ID
-- **Command Reception:** Listens for incoming commands (configs, control)
-- **Status Reporting:** Sends events back to supervisor (success, errors, status)
-- **Reconnection:** Handles disconnections with exponential backoff
-
-**How it works:**
-```go
-// Connect to supervisor
-conn, _ := grpc.Dial("supervisor:50051")
-client := controlpb.NewControlServiceClient(conn)
-
-// Open bidirectional stream
-stream, _ := client.Stream(context.Background())
-
-// Send initial registration
-stream.Send(&controlpb.Event{
-    Type: "Connected",
-    Payload: `{"deviceId": "device-1"}`,
-})
-
-// Listen for commands
-for {
-    cmd, _ := stream.Recv()
-    handleCommand(cmd)
-}
-```
-
-**Command Handling:**
-- `UpdateConfig`: Receives YAML config, writes to disk, triggers reload
-- `FetchStatus`: Returns current device/collector status
-- `RestartCollector`: Restarts the OTel Collector process
-
-### 2. OTel Config Manager
-**Purpose:** Manages the OpenTelemetry Collector configuration file and lifecycle.
-
-**Functionality:**
-- **Config Writing:** Receives YAML configs and writes to disk
-- **File Management:** Ensures proper permissions and atomic writes
-- **Change Detection:** Only updates if config actually changed
-- **Reload Signaling:** Triggers collector to reload configuration
-- **Validation:** Basic YAML validation before applying
-
-**File Path:** `/etc/otelcol/config.yaml`
-
-**How it works:**
-```go
-type ConfigManager struct {
-    configPath string
-}
-
-func (m *ConfigManager) UpdateConfig(yamlContent []byte) error {
-    // Write to temporary file first
-    tmpFile := m.configPath + ".tmp"
-    ioutil.WriteFile(tmpFile, yamlContent, 0644)
-    
-    // Validate YAML
-    if !isValidYAML(yamlContent) {
-        return errors.New("invalid YAML")
-    }
-    
-    // Atomic rename
-    os.Rename(tmpFile, m.configPath)
-    
-    // Signal collector to reload
-    m.signalReload()
-    
-    return nil
-}
-```
-
-**Reload Mechanisms:**
-1. **File Watch:** OTel Collector watches config file for changes
-2. **SIGHUP Signal:** Send signal to collector process (if supported)
-3. **HTTP API:** Call collector's reload endpoint (if enabled)
-
-### 3. OpAMP Client (Optional)
-**Purpose:** Direct connection to OpAMP Server for redundancy and status reporting.
-
-**Functionality:**
-- **Direct Registration:** Can register with OpAMP Server independently
-- **Status Reporting:** Sends device metrics and health directly
-- **Fallback Path:** Provides redundancy if supervisor connection fails
-- **Capability Negotiation:** Reports device capabilities to server
-
-**Note:** In the current POC, this primarily serves as a status reporter while supervisor handles config distribution.
-
-## Message Flow Examples
-
-### Startup Flow
-1. Device agent starts with args:
-   ```bash
-   --supervisor=supervisor:50051
-   --node-id=device-1
-   --otel-config=/etc/otelcol/config.yaml
-   ```
-2. Opens gRPC stream to supervisor
-3. Sends "Connected" event:
-   ```json
-   {
-     "type": "Connected",
-     "payload": "{\"deviceId\": \"device-1\", \"version\": \"1.0.0\"}",
-     "correlation_id": "startup-001"
-   }
-   ```
-4. Waits for commands from supervisor
-
-### Configuration Update Flow
-1. Supervisor sends UpdateConfig command:
-   ```protobuf
-   Command {
-     type: "UpdateConfig"
-     payload: "receivers:\n  otlp:\n    protocols:\n      grpc:\n        endpoint: 0.0.0.0:4317"
-     correlation_id: "config-update-123"
-   }
-   ```
-2. Device agent receives command
-3. Config manager validates YAML
-4. Config manager writes to `/etc/otelcol/config.yaml`
-5. Config manager signals OTel Collector to reload
-6. Device agent sends success event:
-   ```json
-   {
-     "type": "ConfigApplied",
-     "payload": "{\"status\": \"success\", \"lines\": 45}",
-     "correlation_id": "config-update-123"
-   }
-   ```
-
-### Error Handling Flow
-1. Invalid config received
-2. Config manager detects YAML error
-3. Device agent sends error event:
-   ```json
-   {
-     "type": "ConfigError",
-     "payload": "{\"error\": \"invalid YAML: line 5\"}",
-     "correlation_id": "config-update-124"
-   }
-   ```
-4. Previous valid config remains active
-5. Supervisor can retry or notify operator
-
-### Periodic Status Flow
-1. Device agent monitors OTel Collector health
-2. Every 30 seconds, sends status event:
-   ```json
-   {
-     "type": "Status",
-     "payload": "{\"collector\": \"running\", \"memory\": \"45MB\", \"uptime\": \"2h15m\"}"
-   }
-   ```
-3. Supervisor forwards to OpAMP Server
-4. OpAMP Server updates device status in UI
-
-## OTel Collector Integration
-
-The Device Agent **manages** but doesn't **contain** the OTel Collector:
+## 🎯 Architecture: Separate Pods, Shared Storage
 
 ```
-Device Agent Container
-├── main.go (gRPC client)
-├── otel_config_manager.go
-└── /etc/otelcol/config.yaml (shared volume)
-
-OTel Collector Container
-├── otelcol (collector binary)
-└── /etc/otelcol/config.yaml (watches this file)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              One Edge Device                                │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │                          Device-Agent Pod                             │ │
+│  │                                                                       │ │
+│  │  • Connects to Supervisor via gRPC                                   │ │
+│  │  • Receives config updates                                           │ │
+│  │  • Writes to /shared-config/fluent-bit.conf                          │ │
+│  │  • Sends status back every 30s                                       │ │
+│  │  • Queries Fluent Bit runtime state                                  │ │
+│  └───────────────────────┬───────────────────────────────────────────────┘ │
+│                          │                                                  │
+│                          │ Shared PVC (ReadWriteMany)                       │
+│                          │ Mounted at: /shared-config                       │
+│                          │                                                  │
+│  ┌───────────────────────▼───────────────────────────────────────────────┐ │
+│  │                        Fluent Bit Pod                                 │ │
+│  │                                                                       │ │
+│  │  • Reads from /shared-config/fluent-bit.conf                         │ │
+│  │  • Hot reload API on port 2020                                       │ │
+│  │  • Automatically reloads when config changes                         │ │
+│  │  • Emits logs to stdout                                              │ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Shared Volume:** Both containers mount `/etc/otelcol` so:
-- Device agent writes `config.yaml`
-- OTel collector reads `config.yaml`
-- Collector auto-reloads on file change
+### Why Separate Pods?
 
-**Kubernetes Deployment:**
-```yaml
-Pod: device-agent-1
-  - Container: device-agent
-    - Mounts: config-volume at /etc/otelcol
-  - Container: otel-collector
-    - Mounts: config-volume at /etc/otelcol
-Volumes:
-  - config-volume (emptyDir)
+**1. Hot Reload Without Restart**
+   - Device-Agent writes new config → Shared PVC
+   - Fluent Bit reads from same PVC
+   - Fluent Bit detects change via hot reload API
+   - **No pod restart needed** = zero downtime
+   - Fluent Bit keeps emitting logs while config updates
+
+**2. Isolation = Stability**
+   - If Device-Agent crashes → Fluent Bit keeps running
+   - If Fluent Bit crashes → Device-Agent stays connected to cloud
+   - Each pod can restart independently
+   - Updates to one don't affect the other
+
+**3. Shared Storage (PVC)**
+   - Both pods mount the same volume
+   - Device-Agent: Writes to `/shared-config/fluent-bit.conf`
+   - Fluent Bit: Reads from `/shared-config/fluent-bit.conf`
+   - Uses `ReadWriteMany` so both can access simultaneously
+   - Changes are visible instantly to both pods
+
+---
+
+## 🔄 Config Update Flow
+
+```
+1. User clicks "Enable Emission" in UI
+         │
+         ▼
+2. OpAMP Server → OpAMP Supervisor (cloud)
+         │
+         ▼
+3. OpAMP Supervisor → Device-Agent (gRPC)
+         │
+         ▼
+4. Device-Agent writes to /shared-config/fluent-bit.conf
+         │
+         ▼
+5. Device-Agent calls Fluent Bit reload API
+         │   http://fluentbit-device-X:2020/api/v2/reload
+         │
+         ▼
+6. Fluent Bit detects config change
+         │
+         ▼
+7. Fluent Bit hot reloads (no restart)
+         │
+         ▼
+8. Fluent Bit starts emitting logs ✅
+         │
+         ▼
+9. Device-Agent sends status back to cloud
 ```
 
-## Command-Line Arguments
+---
 
+## ✨ Current Features
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **gRPC Client** | Connects to OpAMP Supervisor | ✅ Working |
+| **Config Management** | Writes Fluent Bit configs to PVC | ✅ Working |
+| **Hot Reload** | Calls Fluent Bit reload API | ✅ Working |
+| **Runtime Monitoring** | Queries Fluent Bit state every 30s | ✅ Working |
+| **Heartbeat** | Sends status to cloud regularly | ✅ Working |
+| **Auto-Reconnect** | Reconnects if connection drops | ✅ Working |
+| **File Fallback** | Reads config from file if API fails | ✅ Working |
+
+---
+
+## 🔧 How Configs Work
+
+### Default Config (Emission OFF)
+```ini
+[SERVICE]
+    flush        5
+    daemon       Off
+    log_level    info
+
+# No INPUT or OUTPUT sections = silent mode
+```
+
+### Active Config (Emission ON)
+```ini
+[SERVICE]
+    flush        5
+    daemon       Off
+    log_level    info
+    http_server  On
+    http_listen  0.0.0.0
+    http_port    2020
+    hot_reload   On
+
+[INPUT]
+    name         dummy
+    tag          logs
+    dummy        {"message":"test log","level":"info"}
+    rate         1
+
+[OUTPUT]
+    name         stdout
+    match        *
+    format       json_lines
+```
+
+When emission is enabled:
+- Device-Agent receives config from cloud
+- Writes it to `/shared-config/fluent-bit.conf`
+- Calls reload API
+- Fluent Bit starts generating dummy logs at 1/sec
+- Logs appear in Fluent Bit pod output
+
+---
+
+## 🚀 One-Command Deployment (Plug & Play)
+
+### Add a New Device
 ```bash
-device-agent \
-  --supervisor=supervisor.opamp-system.svc.cluster.local:50051 \
-  --node-id=device-1 \
-  --otel-config=/etc/otelcol/config.yaml
+./scripts/add-device.sh 13
 ```
 
-**Arguments:**
-- `--supervisor`: gRPC address of supervisor
-- `--node-id`: Unique identifier for this device
-- `--otel-config`: Path where OTel config should be written
+That's it! The script automatically:
+- ✅ Generates Fluent Bit deployment
+- ✅ Generates Device-Agent deployment  
+- ✅ Creates shared PVC (ReadWriteMany)
+- ✅ Deploys both pods
+- ✅ Device auto-connects to supervisor
+- ✅ Appears in UI within seconds
 
-## Configuration Templates
-
-Pre-built configs in `configs/` directory:
-
-### device-1-otel-config.yaml
-```yaml
-receivers:
-  otlp:
-    protocols:
-      grpc:
-        endpoint: 0.0.0.0:4317
-      http:
-        endpoint: 0.0.0.0:4318
-
-processors:
-  batch:
-    timeout: 10s
-
-exporters:
-  logging:
-    loglevel: debug
-
-service:
-  pipelines:
-    traces:
-      receivers: [otlp]
-      processors: [batch]
-      exporters: [logging]
-```
-
-### enable-logs-pipeline.yaml
-```yaml
-service:
-  pipelines:
-    traces:
-      receivers: [otlp]
-      processors: [batch]
-      exporters: [logging]
-    logs:
-      receivers: [otlp]
-      processors: [batch]
-      exporters: [logging]
-```
-
-## Key Features in POC
-
-1. **Remote Management:** Accepts configs from anywhere via supervisor
-2. **Hot Reload:** Applies configs without restarting collector
-3. **Error Recovery:** Maintains last valid config on errors
-4. **Status Visibility:** Reports health upstream
-5. **Lightweight:** Minimal resource footprint
-6. **Stateless:** No local database or persistence needed
-
-## Technology Stack
-- **Language:** Go
-- **gRPC:** google.golang.org/grpc
-- **Protocol:** Defined in shared control.proto
-- **OTel:** Manages otel/opentelemetry-collector
-
-## Deployment
-- **Container Image:** `device-agent:latest`
-- **Kubernetes:** Deployed in `opamp-system` namespace
-- **Replicas:** Multiple instances (device-1, device-2, ...)
-- **Volumes:** Shared emptyDir for config file
-
-## Building
+### Remove a Device
 ```bash
-# Build binary
-go build -o device-agent .
-
-# Build Docker image
-docker build -t device-agent:latest -f Dockerfile .
+./scripts/remove-device.sh 13
 ```
 
-## Directory Structure
+Cleanly removes:
+- Device-Agent deployment
+- Fluent Bit deployment
+- Service
+- ConfigMap
+- PVC
+
+### What Happens Automatically?
+
+```
+1. You run: ./scripts/add-device.sh 13
+         │
+         ▼
+2. Script creates PVC + Fluent Bit + Device-Agent
+         │
+         ▼
+3. Device-Agent connects to Supervisor
+         │
+         ▼
+4. Supervisor auto-registers device
+         │
+         ▼
+5. Supervisor reports to OpAMP Server
+         │
+         ▼
+6. Device appears in UI ✅
+```
+
+No manual configuration needed!
+
+---
+
+## 🚀 Deployment
+
+### Using Setup Script (Recommended)
+```bash
+# From opamp-server directory - deploys everything including devices
+cd ../opamp-server
+./scripts/setup.sh
+```
+
+### Adding/Removing Devices Manually
+```bash
+# Add a device (creates all resources dynamically)
+./scripts/add-device.sh 5
+
+# Remove a device
+./scripts/remove-device.sh 5
+```
+
+### Build Image Only
+```bash
+eval $(minikube -p control-plane docker-env)
+docker build -t opamp-device-agent:v8 .
+```
+
+### Verify Deployment
+```bash
+# Check status
+kubectl --context control-plane get pods -n opamp-edge
+
+# Check device-agent logs
+kubectl --context control-plane logs -n opamp-edge -l app=device-agent-3
+
+# Check fluent bit logs (when emission ON)
+kubectl --context control-plane logs -n opamp-edge -l app=fluentbit-device-3
+```
+
+---
+
+## 📁 Project Structure
+
 ```
 opamp-device-agent/
-├── main.go                    # gRPC client and main loop
-├── otel_config_manager.go     # Config file management
-├── api/
-│   ├── control.proto          # Shared with supervisor
-│   └── controlpb/             # Generated code
-├── configs/                   # Example configs
-│   ├── device-1-otel-config.yaml
-│   ├── device-2-otel-config.yaml
-│   ├── enable-logs-pipeline.yaml
-│   └── enable-traces-pipeline.yaml
-└── k8s/
-    ├── device-agent.yaml      # Device deployments
-    └── otel-collector.yaml    # OTel collector deployments
+├── main.go                     # Main entry point
+├── scripts/
+│   ├── add-device.sh           # Dynamically create and deploy devices
+│   └── remove-device.sh        # Remove devices and cleanup
+├── k8s/                        # (empty - devices created dynamically by scripts)
+└── configs/                    # Config templates
 ```
 
-## How This Enables E2E POC
+---
 
-The Device Agent is the **edge component** that completes the POC:
+## 🔑 Key Configuration
 
-1. **Edge Presence:** Represents actual devices in the field
-2. **gRPC Client:** Demonstrates edge-to-cloud communication
-3. **Config Application:** Shows real config changes taking effect
-4. **OTel Management:** Proves remote management of telemetry pipeline
-5. **Bidirectional Comms:** Reports status back to cloud
-6. **Real-world Simulation:** Mimics actual edge deployment
+Each device needs:
 
-**E2E Flow Completion:**
+1. **Device-Agent Deployment**
+   - Environment: `DEVICE_ID=device-3`
+   - Environment: `SUPERVISOR_ADDR=opamp-supervisor.opamp-control.svc.cluster.local:50051`
+   - Volume mount: `/shared-config` (PVC)
+
+2. **Fluent Bit Deployment**
+   - Volume mount: `/shared-config` (same PVC)
+   - HTTP server: Port 2020 for hot reload API
+   - Config path: `/shared-config/fluent-bit.conf`
+
+3. **PVC (Persistent Volume Claim)**
+   - Access mode: `ReadWriteMany`
+   - Size: `10Mi`
+   - Shared between both pods
+
+---
+
+## 🐛 Troubleshooting
+
+### Device not appearing in UI?
+```bash
+# Check if device-agent is connected
+kubectl --context control-plane logs -n opamp-edge -l app=device-agent-X | grep "Connected"
+
+# Check supervisor logs
+kubectl --context control-plane logs -n opamp-control -l app=opamp-supervisor | grep "device-X"
 ```
-UI Input (OpAMP Server)
-    ↓
-OpAMP Protocol (OpAMP Server → Supervisor)
-    ↓
-gRPC Translation (Supervisor → Device Agent)
-    ↓
-Config Application (Device Agent → OTel Collector)
-    ↓
-Telemetry Collection (OTel Collector)
-    ↓
-Status Feedback (Device Agent → Supervisor → OpAMP Server → UI)
+
+### Toggle not working?
+```bash
+# Check device-agent received config
+kubectl --context control-plane logs -n opamp-edge -l app=device-agent-X | grep "ConfigPush"
+
+# Check if reload API was called
+kubectl --context control-plane logs -n opamp-edge -l app=device-agent-X | grep "reload API"
+
+# Check Fluent Bit actually started emitting
+kubectl --context control-plane logs -n opamp-edge -l app=fluentbit-device-X --tail=10
 ```
 
-**Without the device agent:**
-- No edge component to manage
-- No way to demonstrate config changes
-- No proof of remote management working
-- No telemetry pipeline to control
-- POC would be incomplete
+### PVC mount issues?
+```bash
+# Check PVC status
+kubectl --context control-plane get pvc -n opamp-edge | grep device-X
 
-The device agent proves that **centralized management of distributed OTel collectors is possible and practical**.
-
-## Testing Locally
-
-1. Start supervisor in one terminal:
-   ```bash
-   cd opamp-poc-supervisor
-   go run ./cmd/supervisor
-   ```
-
-2. Start device agent in another:
-   ```bash
-   cd opamp-device-agent
-   go run . --supervisor=localhost:50051 --node-id=device-local
-   ```
-
-3. Watch logs to see gRPC connection and config updates
-
-## Production Considerations
-
-For real deployments:
-- Add TLS for gRPC connections
-- Implement authentication/authorization
-- Add config validation/schema checks
-- Include collector process monitoring
-- Add retry logic with exponential backoff
-- Implement graceful shutdown
-- Add metrics and health endpoints
-- Use persistent volumes for critical state
+# Verify both pods using same PVC
+kubectl --context control-plane describe pod <device-agent-pod> -n opamp-edge | grep -A5 "Volumes"
+kubectl --context control-plane describe pod <fluentbit-pod> -n opamp-edge | grep -A5 "Volumes"
+```

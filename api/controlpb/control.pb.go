@@ -26,6 +26,7 @@ type EdgeIdentity struct {
 	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
 	Version       string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
 	Platform      string                 `protobuf:"bytes,3,opt,name=platform,proto3" json:"platform,omitempty"`
+	AgentType     string                 `protobuf:"bytes,4,opt,name=agent_type,json=agentType,proto3" json:"agent_type,omitempty"` // "otelcol", "fluentbit"
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -77,6 +78,13 @@ func (x *EdgeIdentity) GetVersion() string {
 func (x *EdgeIdentity) GetPlatform() string {
 	if x != nil {
 		return x.Platform
+	}
+	return ""
+}
+
+func (x *EdgeIdentity) GetAgentType() string {
+	if x != nil {
+		return x.AgentType
 	}
 	return ""
 }
@@ -209,6 +217,152 @@ func (x *Event) GetTsUnixNano() int64 {
 	return 0
 }
 
+// Config push from supervisor to device
+type ConfigPush struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId      string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	ConfigData    []byte                 `protobuf:"bytes,2,opt,name=config_data,json=configData,proto3" json:"config_data,omitempty"`
+	ConfigHash    string                 `protobuf:"bytes,3,opt,name=config_hash,json=configHash,proto3" json:"config_hash,omitempty"`
+	AgentType     string                 `protobuf:"bytes,4,opt,name=agent_type,json=agentType,proto3" json:"agent_type,omitempty"` // "otelcol", "fluentbit"
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConfigPush) Reset() {
+	*x = ConfigPush{}
+	mi := &file_api_control_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfigPush) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfigPush) ProtoMessage() {}
+
+func (x *ConfigPush) ProtoReflect() protoreflect.Message {
+	mi := &file_api_control_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfigPush.ProtoReflect.Descriptor instead.
+func (*ConfigPush) Descriptor() ([]byte, []int) {
+	return file_api_control_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ConfigPush) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *ConfigPush) GetConfigData() []byte {
+	if x != nil {
+		return x.ConfigData
+	}
+	return nil
+}
+
+func (x *ConfigPush) GetConfigHash() string {
+	if x != nil {
+		return x.ConfigHash
+	}
+	return ""
+}
+
+func (x *ConfigPush) GetAgentType() string {
+	if x != nil {
+		return x.AgentType
+	}
+	return ""
+}
+
+// Config acknowledgment from device to supervisor
+type ConfigAck struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId        string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	ConfigHash      string                 `protobuf:"bytes,2,opt,name=config_hash,json=configHash,proto3" json:"config_hash,omitempty"`
+	Success         bool                   `protobuf:"varint,3,opt,name=success,proto3" json:"success,omitempty"`
+	ErrorMessage    string                 `protobuf:"bytes,4,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	EffectiveConfig []byte                 `protobuf:"bytes,5,opt,name=effective_config,json=effectiveConfig,proto3" json:"effective_config,omitempty"` // What's actually running
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ConfigAck) Reset() {
+	*x = ConfigAck{}
+	mi := &file_api_control_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfigAck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfigAck) ProtoMessage() {}
+
+func (x *ConfigAck) ProtoReflect() protoreflect.Message {
+	mi := &file_api_control_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfigAck.ProtoReflect.Descriptor instead.
+func (*ConfigAck) Descriptor() ([]byte, []int) {
+	return file_api_control_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ConfigAck) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *ConfigAck) GetConfigHash() string {
+	if x != nil {
+		return x.ConfigHash
+	}
+	return ""
+}
+
+func (x *ConfigAck) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *ConfigAck) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *ConfigAck) GetEffectiveConfig() []byte {
+	if x != nil {
+		return x.EffectiveConfig
+	}
+	return nil
+}
+
 type Envelope struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Body:
@@ -216,6 +370,8 @@ type Envelope struct {
 	//	*Envelope_Register
 	//	*Envelope_Command
 	//	*Envelope_Event
+	//	*Envelope_ConfigPush
+	//	*Envelope_ConfigAck
 	Body          isEnvelope_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -223,7 +379,7 @@ type Envelope struct {
 
 func (x *Envelope) Reset() {
 	*x = Envelope{}
-	mi := &file_api_control_proto_msgTypes[3]
+	mi := &file_api_control_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -235,7 +391,7 @@ func (x *Envelope) String() string {
 func (*Envelope) ProtoMessage() {}
 
 func (x *Envelope) ProtoReflect() protoreflect.Message {
-	mi := &file_api_control_proto_msgTypes[3]
+	mi := &file_api_control_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -248,7 +404,7 @@ func (x *Envelope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Envelope.ProtoReflect.Descriptor instead.
 func (*Envelope) Descriptor() ([]byte, []int) {
-	return file_api_control_proto_rawDescGZIP(), []int{3}
+	return file_api_control_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Envelope) GetBody() isEnvelope_Body {
@@ -285,6 +441,24 @@ func (x *Envelope) GetEvent() *Event {
 	return nil
 }
 
+func (x *Envelope) GetConfigPush() *ConfigPush {
+	if x != nil {
+		if x, ok := x.Body.(*Envelope_ConfigPush); ok {
+			return x.ConfigPush
+		}
+	}
+	return nil
+}
+
+func (x *Envelope) GetConfigAck() *ConfigAck {
+	if x != nil {
+		if x, ok := x.Body.(*Envelope_ConfigAck); ok {
+			return x.ConfigAck
+		}
+	}
+	return nil
+}
+
 type isEnvelope_Body interface {
 	isEnvelope_Body()
 }
@@ -301,21 +475,35 @@ type Envelope_Event struct {
 	Event *Event `protobuf:"bytes,3,opt,name=event,proto3,oneof"` // edge -> supervisor
 }
 
+type Envelope_ConfigPush struct {
+	ConfigPush *ConfigPush `protobuf:"bytes,4,opt,name=config_push,json=configPush,proto3,oneof"` // supervisor -> edge (new config)
+}
+
+type Envelope_ConfigAck struct {
+	ConfigAck *ConfigAck `protobuf:"bytes,5,opt,name=config_ack,json=configAck,proto3,oneof"` // edge -> supervisor (config applied)
+}
+
 func (*Envelope_Register) isEnvelope_Body() {}
 
 func (*Envelope_Command) isEnvelope_Body() {}
 
 func (*Envelope_Event) isEnvelope_Body() {}
 
+func (*Envelope_ConfigPush) isEnvelope_Body() {}
+
+func (*Envelope_ConfigAck) isEnvelope_Body() {}
+
 var File_api_control_proto protoreflect.FileDescriptor
 
 const file_api_control_proto_rawDesc = "" +
 	"\n" +
-	"\x11api/control.proto\x12\acontrol\"]\n" +
+	"\x11api/control.proto\x12\acontrol\"|\n" +
 	"\fEdgeIdentity\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x1a\n" +
-	"\bplatform\x18\x03 \x01(\tR\bplatform\"^\n" +
+	"\bplatform\x18\x03 \x01(\tR\bplatform\x12\x1d\n" +
+	"\n" +
+	"agent_type\x18\x04 \x01(\tR\tagentType\"^\n" +
 	"\aCommand\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x18\n" +
 	"\apayload\x18\x02 \x01(\tR\apayload\x12%\n" +
@@ -325,14 +513,34 @@ const file_api_control_proto_rawDesc = "" +
 	"\apayload\x18\x02 \x01(\tR\apayload\x12%\n" +
 	"\x0ecorrelation_id\x18\x03 \x01(\tR\rcorrelationId\x12 \n" +
 	"\fts_unix_nano\x18\x04 \x01(\x03R\n" +
-	"tsUnixNano\"\x9d\x01\n" +
+	"tsUnixNano\"\x8a\x01\n" +
+	"\n" +
+	"ConfigPush\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x1f\n" +
+	"\vconfig_data\x18\x02 \x01(\fR\n" +
+	"configData\x12\x1f\n" +
+	"\vconfig_hash\x18\x03 \x01(\tR\n" +
+	"configHash\x12\x1d\n" +
+	"\n" +
+	"agent_type\x18\x04 \x01(\tR\tagentType\"\xb3\x01\n" +
+	"\tConfigAck\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x1f\n" +
+	"\vconfig_hash\x18\x02 \x01(\tR\n" +
+	"configHash\x12\x18\n" +
+	"\asuccess\x18\x03 \x01(\bR\asuccess\x12#\n" +
+	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage\x12)\n" +
+	"\x10effective_config\x18\x05 \x01(\fR\x0feffectiveConfig\"\x8a\x02\n" +
 	"\bEnvelope\x123\n" +
 	"\bregister\x18\x01 \x01(\v2\x15.control.EdgeIdentityH\x00R\bregister\x12,\n" +
 	"\acommand\x18\x02 \x01(\v2\x10.control.CommandH\x00R\acommand\x12&\n" +
-	"\x05event\x18\x03 \x01(\v2\x0e.control.EventH\x00R\x05eventB\x06\n" +
+	"\x05event\x18\x03 \x01(\v2\x0e.control.EventH\x00R\x05event\x126\n" +
+	"\vconfig_push\x18\x04 \x01(\v2\x13.control.ConfigPushH\x00R\n" +
+	"configPush\x123\n" +
+	"\n" +
+	"config_ack\x18\x05 \x01(\v2\x12.control.ConfigAckH\x00R\tconfigAckB\x06\n" +
 	"\x04body2E\n" +
 	"\x0eControlService\x123\n" +
-	"\aControl\x12\x11.control.Envelope\x1a\x11.control.Envelope(\x010\x01B8Z6local.dev/opamp-poc-supervisor/api/controlpb;controlpbb\x06proto3"
+	"\aControl\x12\x11.control.Envelope\x1a\x11.control.Envelope(\x010\x01B4Z2local.dev/opamp-supervisor/api/controlpb;controlpbb\x06proto3"
 
 var (
 	file_api_control_proto_rawDescOnce sync.Once
@@ -346,24 +554,28 @@ func file_api_control_proto_rawDescGZIP() []byte {
 	return file_api_control_proto_rawDescData
 }
 
-var file_api_control_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_api_control_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_api_control_proto_goTypes = []any{
 	(*EdgeIdentity)(nil), // 0: control.EdgeIdentity
 	(*Command)(nil),      // 1: control.Command
 	(*Event)(nil),        // 2: control.Event
-	(*Envelope)(nil),     // 3: control.Envelope
+	(*ConfigPush)(nil),   // 3: control.ConfigPush
+	(*ConfigAck)(nil),    // 4: control.ConfigAck
+	(*Envelope)(nil),     // 5: control.Envelope
 }
 var file_api_control_proto_depIdxs = []int32{
 	0, // 0: control.Envelope.register:type_name -> control.EdgeIdentity
 	1, // 1: control.Envelope.command:type_name -> control.Command
 	2, // 2: control.Envelope.event:type_name -> control.Event
-	3, // 3: control.ControlService.Control:input_type -> control.Envelope
-	3, // 4: control.ControlService.Control:output_type -> control.Envelope
-	4, // [4:5] is the sub-list for method output_type
-	3, // [3:4] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	3, // 3: control.Envelope.config_push:type_name -> control.ConfigPush
+	4, // 4: control.Envelope.config_ack:type_name -> control.ConfigAck
+	5, // 5: control.ControlService.Control:input_type -> control.Envelope
+	5, // 6: control.ControlService.Control:output_type -> control.Envelope
+	6, // [6:7] is the sub-list for method output_type
+	5, // [5:6] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_api_control_proto_init() }
@@ -371,10 +583,12 @@ func file_api_control_proto_init() {
 	if File_api_control_proto != nil {
 		return
 	}
-	file_api_control_proto_msgTypes[3].OneofWrappers = []any{
+	file_api_control_proto_msgTypes[5].OneofWrappers = []any{
 		(*Envelope_Register)(nil),
 		(*Envelope_Command)(nil),
 		(*Envelope_Event)(nil),
+		(*Envelope_ConfigPush)(nil),
+		(*Envelope_ConfigAck)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -382,7 +596,7 @@ func file_api_control_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_control_proto_rawDesc), len(file_api_control_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "../opamp-supervisor"
+		},
+		{
+			"path": "../opamp-server"
+		},
+		{
+			"path": "."
+		}
+	]
+}

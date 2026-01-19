@@ -5,12 +5,13 @@ package control;
 
 // IMPORTANT: This must match your local module path + directory.
 // The alias after ';' sets the Go package name for generated code.
-option go_package = "local.dev/opamp-poc-supervisor/api/controlpb;controlpb";
+option go_package = "local.dev/opamp-supervisor/api/controlpb;controlpb";
 
 message EdgeIdentity {
   string node_id = 1;
   string version = 2;
   string platform = 3;
+  string agent_type = 4;  // "otelcol", "fluentbit"
 }
 
 message Command {
@@ -26,11 +27,30 @@ message Event {
   int64 ts_unix_nano = 4;
 }
 
+// Config push from supervisor to device
+message ConfigPush {
+  string device_id = 1;
+  bytes config_data = 2;
+  string config_hash = 3;
+  string agent_type = 4; // "otelcol", "fluentbit"
+}
+
+// Config acknowledgment from device to supervisor
+message ConfigAck {
+  string device_id = 1;
+  string config_hash = 2;
+  bool success = 3;
+  string error_message = 4;
+  bytes effective_config = 5; // What's actually running
+}
+
 message Envelope {
   oneof body {
-    EdgeIdentity register = 1; // sent once by the edge
-    Command      command  = 2; // supervisor -> edge
-    Event        event    = 3; // edge -> supervisor
+    EdgeIdentity register    = 1; // sent once by the edge
+    Command      command     = 2; // supervisor -> edge
+    Event        event       = 3; // edge -> supervisor
+    ConfigPush   config_push = 4; // supervisor -> edge (new config)
+    ConfigAck    config_ack  = 5; // edge -> supervisor (config applied)
   }
 }
 
