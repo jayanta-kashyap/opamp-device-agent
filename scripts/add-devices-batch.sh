@@ -1,31 +1,37 @@
 #!/bin/bash
 
-# Add Device - One Command Deployment
-# Usage: ./scripts/add-device.sh <device-number>
-# Example: ./scripts/add-device.sh 13
+# Add Multiple Devices - Batch Deployment
+# Usage: ./scripts/add-devices-batch.sh <start> <count>
+# Example: ./scripts/add-devices-batch.sh 1 20  (adds device-1 through device-20)
 
 set -e
 
-if [ -z "$1" ]; then
-    echo "❌ Error: Device number required"
-    echo "Usage: ./scripts/add-device.sh <device-number>"
-    echo "Example: ./scripts/add-device.sh 13"
-    exit 1
-fi
+START=${1:-1}
+COUNT=${2:-20}
+END=$((START + COUNT - 1))
 
-DEVICE_NUM=$1
-DEVICE_ID="device-$DEVICE_NUM"
 NAMESPACE="opamp-edge"
 CONTEXT="control-plane"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "🚀 Deploying $DEVICE_ID..."
+echo "=============================================="
+echo "  Batch Device Deployment"
+echo "=============================================="
+echo ""
+echo "Deploying devices: device-$START through device-$END ($COUNT devices)"
+echo ""
 
-# Create temporary YAML files
-FLUENTBIT_YAML="/tmp/fluentbit-$DEVICE_ID.yaml"
-AGENT_YAML="/tmp/device-agent-$DEVICE_ID.yaml"
+# Create all device YAMLs first
+echo "📝 Generating deployment manifests..."
 
-# Generate Fluent Bit deployment
-cat > $FLUENTBIT_YAML <<EOF
+COMBINED_YAML="/tmp/all-devices-batch.yaml"
+> $COMBINED_YAML  # Clear file
+
+for i in $(seq $START $END); do
+    DEVICE_ID="device-$i"
+    
+    cat >> $COMBINED_YAML <<EOF
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -89,6 +95,13 @@ spec:
         volumeMounts:
         - name: shared-config
           mountPath: /shared-config
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
       volumes:
       - name: init-config
         configMap:
@@ -109,24 +122,21 @@ spec:
   - name: http
     port: 2020
     targetPort: 2020
-EOF
-
-# Generate Device-Agent deployment
-cat > $AGENT_YAML <<EOF
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: device-agent-$DEVICE_NUM
+  name: device-agent-$i
   namespace: $NAMESPACE
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: device-agent-$DEVICE_NUM
+      app: device-agent-$i
   template:
     metadata:
       labels:
-        app: device-agent-$DEVICE_NUM
+        app: device-agent-$i
     spec:
       containers:
       - name: device-agent
@@ -141,38 +151,47 @@ spec:
         volumeMounts:
         - name: shared-config
           mountPath: /shared-config
+        resources:
+          requests:
+            memory: "16Mi"
+            cpu: "5m"
+          limits:
+            memory: "32Mi"
+            cpu: "20m"
       volumes:
       - name: shared-config
         persistentVolumeClaim:
           claimName: $DEVICE_ID-config-pvc
 EOF
-
-# Deploy to Kubernetes
-echo "📦 Creating PVC and deploying Fluent Bit..."
-kubectl --context $CONTEXT apply -f $FLUENTBIT_YAML
-
-echo "⏳ Waiting for Fluent Bit to be ready..."
-kubectl --context $CONTEXT wait --for=condition=available --timeout=60s deployment/fluentbit-$DEVICE_ID -n $NAMESPACE 2>/dev/null || true
-
-echo "📦 Deploying Device-Agent..."
-kubectl --context $CONTEXT apply -f $AGENT_YAML
-
-echo "⏳ Waiting for Device-Agent to be ready..."
-kubectl --context $CONTEXT wait --for=condition=available --timeout=60s deployment/device-agent-$DEVICE_NUM -n $NAMESPACE 2>/dev/null || true
-
-# Cleanup temp files
-rm -f $FLUENTBIT_YAML $AGENT_YAML
+    echo "  Generated: $DEVICE_ID"
+done
 
 echo ""
-echo "✅ $DEVICE_ID deployed successfully!"
+echo "🚀 Deploying all devices in one batch..."
+kubectl --context $CONTEXT apply -f $COMBINED_YAML
+
+echo ""
+echo "⏳ Waiting for deployments to be ready (this may take a few minutes)..."
+
+# Wait for all deployments in parallel
+WAIT_TIMEOUT=180
+for i in $(seq $START $END); do
+    kubectl --context $CONTEXT wait --for=condition=available --timeout=${WAIT_TIMEOUT}s \
+        deployment/fluentbit-device-$i deployment/device-agent-$i -n $NAMESPACE 2>/dev/null &
+done
+
+# Wait for all background wait commands
+wait
+
+echo ""
+echo "✅ All $COUNT devices deployed!"
 echo ""
 echo "📊 Pod Status:"
-kubectl --context $CONTEXT get pods -n $NAMESPACE | grep -E "NAME|$DEVICE_ID|device-agent-$DEVICE_NUM"
+kubectl --context $CONTEXT get pods -n $NAMESPACE --no-headers | wc -l | xargs -I {} echo "   Total pods: {}"
+kubectl --context $CONTEXT get pods -n $NAMESPACE | grep -c "Running" | xargs -I {} echo "   Running: {}" 2>/dev/null || true
 echo ""
-echo "🌐 Device should appear in UI at: http://localhost:8080"
+echo "🌐 Devices should appear in UI at: http://localhost:4321"
 echo ""
-echo "📝 To check logs:"
-echo "   Device-Agent: kubectl --context $CONTEXT logs -n $NAMESPACE -l app=device-agent-$DEVICE_NUM -f"
-echo "   Fluent Bit:   kubectl --context $CONTEXT logs -n $NAMESPACE -l app=fluentbit-$DEVICE_ID -f"
-echo ""
-echo "🗑️  To remove: ./scripts/remove-device.sh $DEVICE_NUM"
+
+# Cleanup
+rm -f $COMBINED_YAML
