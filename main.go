@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -182,7 +183,11 @@ func (a *DeviceAgent) register() error {
 func (a *DeviceAgent) getFluentBitRuntimeConfig() ([]byte, error) {
 	// Query Fluent Bit's actual runtime state to detect real emission status
 	// This ensures we report what Fluent Bit is ACTUALLY doing, not just the config file
-	resp, err := http.Get("http://localhost:2020/api/v1/uptime")
+	// Derive base URL from reload endpoint (e.g., http://fluentbit-device-1.opamp-edge.svc.cluster.local:2020)
+	uptimeURL := strings.Replace(a.reloadEndpoint, "/api/v2/reload", "/api/v1/uptime", 1)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(uptimeURL)
 	if err != nil {
 		// Fluent Bit not responding, fall back to file
 		log.Printf("[Device %s] FluentBit API not available, reading from file: %v", a.nodeID, err)
