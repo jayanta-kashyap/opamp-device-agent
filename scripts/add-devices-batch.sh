@@ -140,7 +140,7 @@ spec:
     spec:
       containers:
       - name: device-agent
-        image: opamp-device-agent:v8
+        image: opamp-device-agent:v1
         imagePullPolicy: IfNotPresent
         args:
         - "--supervisor=opamp-supervisor.opamp-control.svc.cluster.local:50051"
