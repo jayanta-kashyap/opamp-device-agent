@@ -189,9 +189,9 @@ func (p *Provisioner) GetLogs(ctx context.Context, deviceID int, tailLines int64
 		return "", fmt.Errorf("no running fluentbit pod found for %s", deviceName)
 	}
 
-	// Fetch logs - use SinceSeconds to get only recent logs (last 1 second)
-	// This ensures we don't show stale logs when emission is paused
-	sinceSeconds := int64(1)
+	// Fetch logs - use SinceSeconds to get recent logs (last 10 seconds)
+	// FluentBit flushes every 5 seconds, so we need a window larger than that
+	sinceSeconds := int64(10)
 	logOptions := &corev1.PodLogOptions{
 		Container:    "fluentbit",
 		TailLines:    &tailLines,
