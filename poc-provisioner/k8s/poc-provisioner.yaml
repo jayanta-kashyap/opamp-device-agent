@@ -34,6 +34,10 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "list", "create", "delete"]
+  # Pod logs for live log viewer (POC feature)
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
 
 ---
 # ClusterRoleBinding

@@ -1,5 +1,6 @@
-# Binary
+# Binaries
 device-agent
+poc-provisioner/poc-provisioner
 
 # IDE
 .idea/

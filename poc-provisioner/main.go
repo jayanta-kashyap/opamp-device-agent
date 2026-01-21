@@ -8,10 +8,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -156,6 +158,65 @@ func (p *Provisioner) ListDevices(ctx context.Context) ([]string, error) {
 		}
 	}
 	return devices, nil
+}
+
+// GetLogs fetches the last few lines of logs from a FluentBit pod
+func (p *Provisioner) GetLogs(ctx context.Context, deviceID int, tailLines int64) (string, error) {
+	deviceName := fmt.Sprintf("device-%d", deviceID)
+
+	// Find the FluentBit pod
+	pods, err := p.clientset.CoreV1().Pods(EdgeNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("app=fluentbit-%s", deviceName),
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to list pods: %w", err)
+	}
+
+	if len(pods.Items) == 0 {
+		return "", fmt.Errorf("no fluentbit pod found for %s", deviceName)
+	}
+
+	// Get logs from the first running pod
+	var targetPod *corev1.Pod
+	for i := range pods.Items {
+		if pods.Items[i].Status.Phase == corev1.PodRunning {
+			targetPod = &pods.Items[i]
+			break
+		}
+	}
+
+	if targetPod == nil {
+		return "", fmt.Errorf("no running fluentbit pod found for %s", deviceName)
+	}
+
+	// Fetch logs - use SinceSeconds to get only recent logs (last 1 second)
+	// This ensures we don't show stale logs when emission is paused
+	sinceSeconds := int64(1)
+	logOptions := &corev1.PodLogOptions{
+		Container:    "fluentbit",
+		TailLines:    &tailLines,
+		SinceSeconds: &sinceSeconds,
+	}
+
+	req := p.clientset.CoreV1().Pods(EdgeNamespace).GetLogs(targetPod.Name, logOptions)
+	logStream, err := req.Stream(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get log stream: %w", err)
+	}
+	defer logStream.Close()
+
+	logs, err := io.ReadAll(logStream)
+	if err != nil {
+		return "", fmt.Errorf("failed to read logs: %w", err)
+	}
+
+	// Return all logs (both JSON emitted logs and FluentBit system logs)
+	// This lets the UI show real pod output whether emission is ON or OFF
+	logStr := strings.TrimSpace(string(logs))
+	if logStr == "" {
+		return "No logs available yet...", nil
+	}
+	return logStr, nil
 }
 
 func (p *Provisioner) createPVC(ctx context.Context, deviceName string) error {
@@ -490,6 +551,55 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
 			"devices": devices,
+		})
+	}))
+
+	// Get FluentBit logs for a device
+	mux.HandleFunc("/api/logs", corsHandler(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var deviceID int
+		var err error
+
+		// Support both GET with query param and POST with body
+		if r.Method == http.MethodGet {
+			deviceIDStr := r.URL.Query().Get("deviceId")
+			if deviceIDStr == "" {
+				json.NewEncoder(w).Encode(Response{Success: false, Error: "deviceId required"})
+				return
+			}
+			deviceID, err = strconv.Atoi(deviceIDStr)
+			if err != nil {
+				json.NewEncoder(w).Encode(Response{Success: false, Error: "Invalid deviceId"})
+				return
+			}
+		} else {
+			var req DeployRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				json.NewEncoder(w).Encode(Response{Success: false, Error: "Invalid request"})
+				return
+			}
+			deviceID = req.DeviceID
+		}
+
+		logs, err := provisioner.GetLogs(r.Context(), deviceID, 50)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+				"logs":    "",
+			})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"logs":    logs,
 		})
 	}))
 
